@@ -1,0 +1,174 @@
+from aiogram import Dispatcher, types, F
+from aiogram.fsm.context import FSMContext
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
+from states.client_states import BookingStates
+from keyboards.inline import service_keyboard, confirm_keyboard
+from keyboards.reply import client_main_keyboard, schedule_main_keyboard
+from config import PSYCHOLOGIST_ID
+from database.session import SessionLocal
+from database.models import Appointment, Client
+from sqlalchemy import select, and_
+from datetime import datetime
+from services.slots import get_available_slots, get_available_days
+
+BLOCKED_INPUTS = ["📅 Записаться", "🗓 Мои записи", "📋 О боте", "🔙 Назад"]
+
+# 👋 Запуск FSM (для клиента)
+async def start_handler(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+
+    if user_id == PSYCHOLOGIST_ID:
+        await message.answer("🚫 Вы — психолог. Записываться к себе нельзя 🙂", reply_markup=schedule_main_keyboard())
+        return
+
+    async with SessionLocal() as session:
+        client_q = await session.execute(select(Client).where(Client.telegram_id == user_id))
+        client = client_q.scalar()
+
+        if client:
+            # Клиент уже существует — пропускаем ввод ФИО и телефона
+            await state.update_data(
+                full_name=client.full_name,
+                phone=client.phone_number
+            )
+            await message.answer("🛎 Выберите услугу:", reply_markup=service_keyboard())
+            await state.set_state(BookingStates.service)
+        else:
+            await message.answer(
+                "👋 Добро пожаловать! Чтобы записаться, укажите ваше <b>ФИО</b>:",
+                parse_mode="HTML"
+            )
+            await state.set_state(BookingStates.full_name)
+
+# ↩️ Отмена FSM
+# async def cancel_fsm(message: types.Message, state: FSMContext):
+#     await state.clear()
+#     await message.answer("↩️ Вы вернулись в меню.", reply_markup=client_main_keyboard())
+
+# 📦 Регистрация хэндлеров
+def register_client_handlers(dp: Dispatcher):
+    dp.message.register(start_handler, Command("start"))
+    # dp.message.register(cancel_fsm, F.text == "🔙 Назад")
+
+    @dp.message(BookingStates.full_name)
+    async def get_full_name(message: types.Message, state: FSMContext):
+        if message.text in BLOCKED_INPUTS:
+            await message.answer("❌ Введите ваше имя вручную, без использования кнопок.")
+            return
+        await state.update_data(full_name=message.text)
+        await message.answer("📞 Укажите ваш номер телефона:")
+        await state.set_state(BookingStates.phone)
+
+    @dp.message(BookingStates.phone)
+    async def get_phone(message: types.Message, state: FSMContext):
+        if message.text in BLOCKED_INPUTS:
+            await message.answer("❌ Введите номер телефона вручную.")
+            return
+        await state.update_data(phone=message.text)
+        await message.answer("🛎 Выберите услугу:", reply_markup=service_keyboard())
+        await state.set_state(BookingStates.service)
+
+    @dp.callback_query(BookingStates.service, F.data.startswith("service_"))
+    async def select_service(callback: types.CallbackQuery, state: FSMContext):
+        service = callback.data.replace("service_", "")
+        await state.update_data(service=service)
+
+        available_dates = await get_available_days(10)
+        if not available_dates:
+            await callback.message.edit_text("🗓 Нет доступных дней для записи.")
+            return
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=label, callback_data=f"date_{date.strftime('%Y-%m-%d')}")]
+                for label, date in available_dates
+            ]
+        )
+
+        await callback.message.edit_text("📅 Выберите день:", reply_markup=kb)
+        await state.set_state(BookingStates.date)
+
+    @dp.callback_query(BookingStates.date, F.data.startswith("date_"))
+    async def select_date(callback: types.CallbackQuery, state: FSMContext):
+        date_str = callback.data.replace("date_", "")
+        chosen_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        await state.update_data(date=chosen_date)
+
+        slots = await get_available_slots(chosen_date)
+        if not slots:
+            await callback.message.edit_text("⚠️ На эту дату слоты закончились.")
+            return
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=time, callback_data=f"time_{time}")]
+                for time in slots
+            ]
+        )
+
+        await callback.message.edit_text("⏰ Выберите время:", reply_markup=kb)
+        await state.set_state(BookingStates.time)
+
+    @dp.callback_query(BookingStates.time, F.data.startswith("time_"))
+    async def select_time(callback: types.CallbackQuery, state: FSMContext):
+        time_str = callback.data.replace("time_", "")
+        chosen_time = datetime.strptime(time_str, "%H:%M").time()
+        await state.update_data(time=chosen_time)
+
+        data = await state.get_data()
+        dt_str = datetime.combine(data["date"], chosen_time).strftime('%d.%m.%Y %H:%M')
+
+        await callback.message.edit_text(
+            f"Вы хотите записаться на <b>{dt_str}</b>?",
+            reply_markup=confirm_keyboard(),
+            parse_mode="HTML"
+        )
+        await state.set_state(BookingStates.confirm)
+
+    @dp.callback_query(BookingStates.confirm, F.data == "confirm_yes")
+    async def confirm_booking(callback: types.CallbackQuery, state: FSMContext):
+        data = await state.get_data()
+        appointment_dt = datetime.combine(data["date"], data["time"])
+
+        async with SessionLocal() as session:
+            client_q = await session.execute(
+                select(Client).where(
+                    and_(
+                        Client.full_name == data["full_name"],
+                        Client.phone_number == data["phone"]
+                    )
+                )
+            )
+            client = client_q.scalar()
+
+            if not client:
+                client = Client(
+                    full_name=data["full_name"],
+                    phone_number=data["phone"],
+                    telegram_id=callback.from_user.id
+                )
+                session.add(client)
+                await session.commit()
+                await session.refresh(client)
+            elif client.telegram_id is None:
+                client.telegram_id = callback.from_user.id
+                await session.commit()
+
+            appointment = Appointment(
+                client_id=client.id,
+                date_time=appointment_dt,
+                service=data["service"],
+                status="active",
+                confirmed=None
+            )
+            session.add(appointment)
+            await session.commit()
+
+        await callback.message.edit_text("✅ Запись сохранена! Мы напомним вам за 24 часа.")
+        await state.clear()
+
+    @dp.callback_query(BookingStates.confirm, F.data == "confirm_no")
+    async def cancel_booking(callback: types.CallbackQuery, state: FSMContext):
+        await callback.message.edit_text("❌ Вы отменили запись. Если передумаете — начните снова.")
+        await state.clear()

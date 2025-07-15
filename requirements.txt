@@ -1,0 +1,7 @@
+pip~=23.2.1
+wheel~=0.41.2
+setuptools~=68.2.0
+aiogram==3.4.1
+SQLAlchemy==2.0.23
+apscheduler==3.10.4
+aiosqlite==0.19.0
