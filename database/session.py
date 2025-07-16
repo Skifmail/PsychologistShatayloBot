@@ -13,14 +13,3 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """Асинхронный генератор для получения сессии (использовать через async with)."""
     async with SessionLocal() as session:
         yield session
-
-
-
-
-
-# from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-# from config import DB_URL
-#
-# # 🔌 Создание движка и фабрики сессий
-# engine = create_async_engine(DB_URL, echo=False)
-# SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
