@@ -1,16 +1,21 @@
 """
-Хэндлеры для просмотра и редактирования рабочих часов психолога.
+Обработчики настройки рабочих часов психолога.
+
+Позволяет психологу настраивать регулярное рабочее расписание
+по дням недели (добавлять, редактировать, удалять).
 """
 import logging
+from datetime import datetime
+
 from aiogram import Dispatcher, types, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
+from sqlalchemy import select, update, delete
+
 from states.psychologist_states import WorkScheduleStates
 from keyboards.reply import weekdays_keyboard, schedule_main_keyboard
 from database.session import get_session
 from database.models import WorkSchedule
-from sqlalchemy import select, update, delete
-from datetime import datetime
 from utils.decorators import psychologist_only
 
 WEEKDAYS = {
@@ -23,13 +28,32 @@ WEEKDAYS = {
     "Воскресенье": 6
 }
 
+
 def get_day_label(index: int) -> str:
+    """
+    Получить название дня недели по индексу.
+    
+    Args:
+        index: Индекс дня недели (0 = Понедельник, 6 = Воскресенье)
+        
+    Returns:
+        str: Название дня недели на русском
+    """
     labels = list(WEEKDAYS.keys())
     return labels[index]
 
+
 @psychologist_only
 async def edit_work_schedule(message: Message, state: FSMContext) -> None:
-    """Показать и редактировать рабочее расписание психолога."""
+    """
+    Показать текущее расписание с возможностью редактирования.
+    
+    Выводит список рабочих дней с кнопками для добавления/удаления.
+    
+    Args:
+        message: Сообщение с кнопкой "Редактировать рабочее расписание"
+        state: Контекст состояния FSM
+    """
     async for session in get_session():
         query = await session.execute(select(WorkSchedule))
         slots = sorted(query.scalars().all(), key=lambda s: s.weekday)

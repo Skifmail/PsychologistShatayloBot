@@ -1,20 +1,35 @@
 """
-Планировщик напоминаний и уведомлений для клиентов и психолога.
+Планировщик автоматических напоминаний и уведомлений.
+
+Управляет отправкой напоминаний клиентам о предстоящих записях
+и ежедневным дайджестом для психолога. Использует APScheduler
+для планирования задач.
 """
 import logging
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime, timedelta, time
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from sqlalchemy import select
+
 from database.session import get_session
 from database.models import Appointment, Client
-from sqlalchemy import select
 from config import PSYCHOLOGIST_ID
 
 scheduler = AsyncIOScheduler()
 
+
 async def send_missed_day_reminders(bot: Bot) -> None:
-    """Отправить напоминания клиентам о записи на сегодня, если не подтверждено."""
+    """
+    Отправить пропущенные напоминания о записях на сегодня.
+    
+    Вызывается при запуске бота для отправки напоминаний
+    о записях на сегодня, если бот был выключен.
+    
+    Args:
+        bot: Экземпляр бота для отправки сообщений
+    """
     async for session in get_session():
         now = datetime.now()
         today = now.date()
@@ -48,7 +63,15 @@ async def send_missed_day_reminders(bot: Bot) -> None:
                 logging.error(f"Ошибка отправки напоминания клиенту: {e}")
 
 async def send_reminder(bot: Bot, appointment_id: int) -> None:
-    """Отправить напоминание за 24 часа до записи."""
+    """
+    Отправить напоминание клиенту за 24 часа до записи.
+    
+    Отправляет сообщение с кнопками подтверждения/отмены записи.
+    
+    Args:
+        bot: Экземпляр бота для отправки сообщений
+        appointment_id: ID записи для напоминания
+    """
     async for session in get_session():
         appointment = await session.get(Appointment, appointment_id)
         if not appointment or appointment.confirmed is not None:
@@ -71,7 +94,15 @@ async def send_reminder(bot: Bot, appointment_id: int) -> None:
             logging.error(f"Ошибка отправки напоминания клиенту: {e}")
 
 async def send_day_of_reminder(bot: Bot, appointment_id: int) -> None:
-    """Утреннее напоминание в день приёма."""
+    """
+    Отправить утреннее напоминание в день приёма.
+    
+    Отправляется в 7:30 утра в день записи.
+    
+    Args:
+        bot: Экземпляр бота для отправки сообщений
+        appointment_id: ID записи для напоминания
+    """
     async for session in get_session():
         appointment = await session.get(Appointment, appointment_id)
         if not appointment:
@@ -94,7 +125,15 @@ async def send_day_of_reminder(bot: Bot, appointment_id: int) -> None:
             logging.error(f"Ошибка отправки утреннего напоминания клиенту: {e}")
 
 async def send_daily_digest(bot: Bot) -> None:
-    """Утренний дайджест для психолога по всем приёмам на сегодня."""
+    """
+    Отправить утренний дайджест психологу.
+    
+    Формирует сводку всех записей на сегодня с отметками
+    о подтверждении клиентами. Отправляется в 7:30 утра.
+    
+    Args:
+        bot: Экземпляр бота для отправки сообщений
+    """
     async for session in get_session():
         today = datetime.now().date()
         query = await session.execute(
@@ -122,7 +161,17 @@ async def send_daily_digest(bot: Bot) -> None:
             logging.error(f"Ошибка отправки дайджеста психологу: {e}")
 
 def schedule_reminders(bot: Bot) -> None:
-    """Запустить планировщик напоминаний и дайджеста."""
+    """
+    Запустить планировщик напоминаний.
+    
+    Инициализирует APScheduler и настраивает задачи:
+    - Проверка записей для напоминаний за 24 часа (каждый час)
+    - Проверка записей для утренних напоминаний
+    - Ежедневный дайджест для психолога (7:30)
+    
+    Args:
+        bot: Экземпляр бота для передачи в задачи
+    """
     async def planner():
         async for session in get_session():
             now = datetime.now()

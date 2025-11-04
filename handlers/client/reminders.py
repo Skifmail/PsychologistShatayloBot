@@ -1,19 +1,36 @@
 """
-Хэндлеры подтверждения и отмены записи через inline-кнопки (FSM подтверждения).
+Обработчики подтверждения записей через inline-кнопки.
+
+Обрабатывает ответы клиентов на напоминания (подтверждение или отказ от записи).
+Уведомляет психолога о решении клиента.
 """
 import logging
+
 from aiogram import Dispatcher, types, F
+from sqlalchemy import select
+
 from database.session import get_session
 from database.models import Appointment, Client
-from sqlalchemy import select
 from config import PSYCHOLOGIST_ID
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 def register_reminder_handlers(dp: Dispatcher) -> None:
-    """Регистрация хэндлеров для подтверждения/отмены записи клиентом."""
+    """
+    Зарегистрировать обработчики подтверждения/отмены записей.
+    
+    Обрабатывает callback от inline-кнопок в напоминаниях.
+    
+    Args:
+        dp: Диспетчер aiogram для регистрации обработчиков
+    """
     @dp.callback_query(F.data.startswith("confirm_"))
     async def handle_confirmation(callback: types.CallbackQuery) -> None:
+        """
+        Обработать ответ клиента на напоминание.
+        
+        Парсит callback_data, обновляет статус подтверждения записи в БД,
+        отправляет уведомление психологу о решении клиента.
+        """
         try:
             if not callback.data:
                 await callback.message.answer("Ошибка: некорректные данные.")

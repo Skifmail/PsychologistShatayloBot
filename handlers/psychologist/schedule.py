@@ -1,21 +1,34 @@
 """
-Хэндлеры для просмотра и редактирования расписания психолога, ручное закрытие слотов.
+Обработчики управления расписанием и недоступными слотами.
+
+Позволяет психологу просматривать расписание и вручную закрывать
+временные слоты (отпуск, личные дела).
 """
 import logging
+from datetime import datetime
+
 from aiogram import Dispatcher, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
-from datetime import datetime
 from sqlalchemy import select
+
 from database.session import get_session
 from database.models import WorkSchedule, UnavailableSlot
 from states.psychologist_states import ScheduleStates
 from keyboards.reply import schedule_main_keyboard
 from utils.decorators import psychologist_only
 
+
 @psychologist_only
 async def view_schedule(message: types.Message) -> None:
-    """Показать текущее расписание психолога."""
+    """
+    Показать текущее рабочее расписание психолога.
+    
+    Выводит список рабочих дней с временными рамками.
+    
+    Args:
+        message: Сообщение с командой /schedule
+    """
     async for session in get_session():
         query = await session.execute(select(WorkSchedule))
         slots = query.scalars().all()

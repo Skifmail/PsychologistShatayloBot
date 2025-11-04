@@ -1,23 +1,36 @@
 """
-Хэндлеры отмены записи клиентом или психологом, FSM для причины отмены.
+Обработчики отмены записи клиентом или психологом.
+
+Позволяет клиентам просматривать свои записи и отменять их.
+Психолог может отменять записи с указанием причины для уведомления клиента.
+Использует FSM для ввода причины отмены психологом.
 """
 import logging
+from datetime import datetime
+
 from aiogram import Dispatcher, types, F, Bot
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from sqlalchemy import select, and_
+
 from database.session import get_session
 from database.models import Appointment, Client
-from sqlalchemy import select, and_
-from datetime import datetime
 from config import PSYCHOLOGIST_ID
 
+
 class CancelState(StatesGroup):
-    """FSM-состояния для причины отмены записи."""
+    """
+    FSM-состояния для процесса отмены записи психологом.
+    
+    Attributes:
+        reason: Ввод причины отмены для уведомления клиента
+    """
     reason = State()
 
-# Хранилище id записи (по пользователю)
+
+# Временное хранилище ID записи для процесса отмены (по пользователю)
 cancel_context = {}
 
 SERVICE_LABELS = {
@@ -26,8 +39,17 @@ SERVICE_LABELS = {
     "supervision": "Супервизия"
 }
 
+
 async def my_appointments(message: Message):
-    """Показать клиенту его активные записи с кнопками отмены/переноса."""
+    """
+    Показать клиенту список его активных записей.
+    
+    Выводит все будущие активные записи с кнопками для отмены
+    или переноса каждой записи.
+    
+    Args:
+        message: Сообщение от клиента с командой или кнопкой "Мои записи"
+    """
     if message is None or getattr(message, 'answer', None) is None:
         return
     user_id = getattr(message.from_user, 'id', None)
@@ -68,7 +90,16 @@ async def my_appointments(message: Message):
         await message.answer(text.strip(), reply_markup=kb)
 
 async def start_cancel(callback: CallbackQuery, state: FSMContext):
-    """Обработка нажатия на отмену записи: психологу — запрос причины, клиенту — отмена сразу."""
+    """
+    Начать процесс отмены записи.
+    
+    Если отменяет психолог — запрашивает причину через FSM.
+    Если отменяет клиент — сразу отменяет запись и обновляет статус.
+    
+    Args:
+        callback: Callback от нажатия кнопки "Отменить"
+        state: Контекст состояния FSM
+    """
     if callback is None or getattr(callback.message, 'answer', None) is None:
         return
     user_id = getattr(callback.from_user, 'id', None)
@@ -95,7 +126,17 @@ async def start_cancel(callback: CallbackQuery, state: FSMContext):
             await callback.message.edit_text("❌ Запись успешно отменена.")
 
 async def receive_cancel_reason(message: Message, state: FSMContext, bot: Bot):
-    """Психолог вводит причину отмены — клиенту отправляется уведомление."""
+    """
+    Получить причину отмены от психолога и уведомить клиента.
+    
+    Сохраняет статус отмены в БД, отправляет клиенту уведомление
+    с указанной причиной.
+    
+    Args:
+        message: Сообщение с текстом причины отмены
+        state: Контекст состояния FSM
+        bot: Экземпляр бота для отправки уведомления клиенту
+    """
     if message is None or getattr(message, 'answer', None) is None:
         return
     text = getattr(message, 'text', None)
@@ -138,7 +179,12 @@ async def receive_cancel_reason(message: Message, state: FSMContext, bot: Bot):
         await state.clear()
 
 def register_cancel_handlers(dp: Dispatcher):
-    """Регистрация хэндлеров отмены записи."""
+    """
+    Зарегистрировать все обработчики отмены записей.
+    
+    Args:
+        dp: Диспетчер aiogram для регистрации обработчиков
+    """
     dp.message.register(my_appointments, Command("my"))
     dp.callback_query.register(start_cancel, F.data.startswith("cancel_"))
     dp.message.register(receive_cancel_reason, CancelState.reason)

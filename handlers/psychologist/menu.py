@@ -1,11 +1,24 @@
 """
-Хэндлеры меню психолога: главное меню, возврат назад, переходы к разделам.
+Обработчики меню психолога.
+
+Управляет навигацией по меню психолога, обрабатывает переходы к разным разделам
+(просмотр записей, настройка расписания, ручная запись клиентов).
 """
 import logging
+from datetime import datetime
+
 from aiogram import Dispatcher, types, F
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from sqlalchemy import select
+
 from config import PSYCHOLOGIST_ID
 from keyboards.reply import schedule_main_keyboard
+from states.psychologist_states import ManualBookingStates
+from services.slots import get_available_slots
+from database.session import get_session
+from database.models import Client, Appointment
 from handlers.psychologist.records import choose_records_filter
 from handlers.psychologist.schedule import view_schedule
 from handlers.psychologist.work_hours import edit_work_schedule
@@ -19,7 +32,14 @@ from database.models import Client, Appointment
 from sqlalchemy import select
 
 async def open_psychologist_menu(message: types.Message) -> None:
-    """Открыть главное меню психолога (только для психолога)."""
+    """
+    Открыть главное меню психолога.
+    
+    Проверяет права доступа (только для PSYCHOLOGIST_ID).
+    
+    Args:
+        message: Сообщение с командой /psych
+    """
     if not message or not getattr(message, 'from_user', None) or getattr(message.from_user, 'id', 0) == 0:
         logging.error("Пустое сообщение или не определён пользователь.")
         return

@@ -1,19 +1,33 @@
 """
-Хэндлеры переноса записи клиентом (выбор новой даты и времени, сохранение).
+Обработчики переноса записи клиентом.
+
+Позволяет клиентам переносить существующие записи на новую дату и время.
+Использует FSM для пошагового выбора новой даты и времени.
 """
 import logging
+from datetime import datetime
+
 from aiogram import Dispatcher, types, F
 from aiogram.fsm.context import FSMContext
+from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select
-from datetime import datetime
+
 from database.session import get_session
 from database.models import Appointment
 from states.client_states import BookingStates
 from services.slots import get_available_days, get_available_slots
-from aiogram.exceptions import TelegramBadRequest
+
 
 async def reschedule_start(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """Старт переноса: выбор новой даты."""
+    """
+    Начать процесс переноса записи.
+    
+    Сохраняет ID записи и показывает доступные даты для переноса.
+    
+    Args:
+        callback: Callback от нажатия кнопки "Перенести"
+        state: Контекст состояния FSM
+    """
     appointment_id = callback.data.replace("reschedule_", "") if callback.data else None
     if not appointment_id or not appointment_id.isdigit():
         await callback.message.answer("Ошибка: некорректный ID записи.")
@@ -42,7 +56,13 @@ async def reschedule_start(callback: types.CallbackQuery, state: FSMContext) -> 
             raise
 
 async def reschedule_date(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """Выбор нового времени после даты."""
+    """
+    Обработать выбор новой даты и показать доступные слоты.
+    
+    Args:
+        callback: Callback с выбранной датой
+        state: Контекст состояния FSM
+    """
     date_str = callback.data.replace("resched_date_", "") if callback.data else None
     if not date_str:
         await callback.message.answer("Ошибка: некорректная дата.")
@@ -75,7 +95,15 @@ async def reschedule_date(callback: types.CallbackQuery, state: FSMContext) -> N
             raise
 
 async def reschedule_time(callback: types.CallbackQuery, state: FSMContext) -> None:
-    """Сохранение нового времени переноса."""
+    """
+    Обработать выбор нового времени и сохранить перенос.
+    
+    Обновляет дату/время записи в БД и очищает состояние FSM.
+    
+    Args:
+        callback: Callback с выбранным временем
+        state: Контекст состояния FSM
+    """
     time_str = callback.data.replace("resched_time_", "") if callback.data else None
     if not time_str:
         await callback.message.answer("Ошибка: некорректное время.")
@@ -116,7 +144,12 @@ async def reschedule_time(callback: types.CallbackQuery, state: FSMContext) -> N
     await state.clear()
 
 def register_reschedule_handlers(dp: Dispatcher) -> None:
-    """Регистрация хэндлеров переноса записи."""
+    """
+    Зарегистрировать обработчики переноса записи.
+    
+    Args:
+        dp: Диспетчер aiogram для регистрации обработчиков
+    """
     dp.callback_query.register(reschedule_start, F.data.startswith("reschedule_"))
     dp.callback_query.register(reschedule_date, F.data.startswith("resched_date_"), BookingStates.reschedule)
     dp.callback_query.register(reschedule_time, F.data.startswith("resched_time_"), BookingStates.reschedule)

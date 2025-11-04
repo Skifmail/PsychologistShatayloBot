@@ -1,26 +1,61 @@
 """
-Хэндлеры клиентского меню: главное меню, информация о боте, возврат назад.
+Обработчики главного меню клиента.
+
+Управляет навигацией по меню клиента, показывает информацию о боте,
+обрабатывает переходы к разным разделам (запись, мои записи).
 """
-import logging
+from typing import Awaitable, Any
+
 from aiogram import Dispatcher, types, F
 from aiogram.filters import Command
-from config import PSYCHOLOGIST_ID
+from aiogram.types import Message
+
 from keyboards.reply import client_main_keyboard
 from handlers.client.booking import start_handler
 from handlers.client.cancel import my_appointments
-from aiogram.types import Message
-from typing import Awaitable, Any
+
 
 def show_client_menu(message: types.Message) -> Awaitable[Any]:
-    """Показать главное меню клиента."""
+    """
+    Показать главное меню клиента.
+    
+    Args:
+        message: Сообщение от клиента с командой /menu
+        
+    Returns:
+        Awaitable: Промис отправки сообщения с клавиатурой меню
+    """
     return message.answer("📋 Ваше меню:", reply_markup=client_main_keyboard())
 
+
 def back_to_client_menu(message: types.Message) -> Awaitable[Any]:
-    """Возврат к клиентскому меню."""
-    return message.answer("↩️ Вы вернулись в меню клиента.", reply_markup=client_main_keyboard())
+    """
+    Вернуться в главное меню клиента.
+    
+    Args:
+        message: Сообщение от клиента с кнопкой "Назад"
+        
+    Returns:
+        Awaitable: Промис отправки сообщения с клавиатурой меню
+    """
+    return message.answer(
+        "↩️ Вы вернулись в меню клиента.",
+        reply_markup=client_main_keyboard()
+    )
+
 
 def about_bot(message: Message) -> Awaitable[Any]:
-    """Информация о боте для клиента."""
+    """
+    Показать информацию о боте.
+    
+    Выводит описание возможностей бота для клиентов.
+    
+    Args:
+        message: Сообщение от клиента с кнопкой "О боте"
+        
+    Returns:
+        Awaitable: Промис отправки информационного сообщения
+    """
     return message.answer(
         "ℹ️ Этот бот позволяет клиентам записываться на консультации, "
         "а психологу — управлять расписанием, приёмами и напоминаниями.\n\n"
@@ -33,7 +68,12 @@ def about_bot(message: Message) -> Awaitable[Any]:
     )
 
 def register_user_menu(dp: Dispatcher) -> None:
-    """Регистрация хэндлеров клиентского меню."""
+    """
+    Зарегистрировать обработчики меню клиента.
+    
+    Args:
+        dp: Диспетчер aiogram для регистрации обработчиков
+    """
     dp.message.register(show_client_menu, Command("menu"))
     dp.message.register(about_bot, F.text == "ℹ️ О боте")
     dp.message.register(start_handler, F.text == "📅 Записаться")

@@ -1,14 +1,19 @@
 """
-Хэндлеры для просмотра и фильтрации записей психолога по дате, периоду, неделе.
+Обработчики просмотра записей психолога.
+
+Позволяет психологу фильтровать и просматривать записи по различным периодам:
+сегодня, завтра, неделя, произвольная дата.
 """
 import logging
+from datetime import datetime, timedelta, date
+
 from aiogram import Dispatcher, types, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-from datetime import datetime, timedelta, date
+from sqlalchemy import select
+
 from database.models import Appointment, Client
 from database.session import get_session
-from sqlalchemy import select
 from states.psychologist_states import DateQueryState
 from config import PSYCHOLOGIST_ID
 from keyboards.reply import schedule_main_keyboard
@@ -19,8 +24,16 @@ SERVICE_LABELS = {
     "supervision": "Супервизия"
 }
 
+
 async def choose_records_filter(message: Message) -> None:
-    """Показать кнопки выбора периода для просмотра записей (только для психолога)."""
+    """
+    Показать меню выбора периода для просмотра записей.
+    
+    Доступно только психологу.
+    
+    Args:
+        message: Сообщение с кнопкой "Показать записи"
+    """
     if not message or not getattr(message, 'from_user', None) or getattr(message.from_user, 'id', None) != PSYCHOLOGIST_ID:
         return
     kb = InlineKeyboardMarkup(
